@@ -30,11 +30,20 @@ parse_args() {
 prompt_path() {
   [[ -n "$DB_PATH" ]] && return
   action=$(gum choose "Select existing vault file" "Create new vault file")
+  # We can implement zenity & kdialog for linux.
   if [[ "$action" == "Select existing vault file" ]]; then
-    echo "Navigate to your existing vault and press Enter:"
-    DB_PATH=$(gum file "$PWD")
+    if [[ "$OSTYPE" == "darwin"* ]] && command -v osascript >/dev/null 2>&1; then
+      DB_PATH=$(osascript -e 'POSIX path of (choose file with prompt "Select vault file:")')
+    else
+      echo "Navigate to your existing vault and press Enter:"
+      DB_PATH=$(gum file "$PWD")
+    fi
   else
-    read -e -p "New vault file path: " DB_PATH
+    if [[ "$OSTYPE" == "darwin"* ]] && command -v osascript >/dev/null 2>&1; then
+      DB_PATH=$(osascript -e 'POSIX path of (choose file name with prompt "Create new vault file:")')
+    else
+      read -e -p "New vault file path: " DB_PATH
+    fi
   fi
   [[ -n "$DB_PATH" ]] || { echo "Error: path required." >&2; exit 1; }
 }
