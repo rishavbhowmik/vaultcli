@@ -20,6 +20,7 @@ It ships as a SH script that runs on with Bash, SQLite and OpenSSL.
 
 - sqlite3 (the SQLite command-line utility)
 - OpenSSL (for encryption)
+- python3 (stdlib only)
 - gum (brew install gum or see Gum’s docs)
 - Your preferred text editor (e.g., vim, nano, or as set by $EDITOR)
 

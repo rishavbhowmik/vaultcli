@@ -51,6 +51,13 @@ check_vault() {
 	sh "$BASEDIR/scripts/check_db.sh" "$DB_PATH"
 }
 
+# Apple's built-in OpenSSL is too old and too limited. `openssl passwd -pbkdf2` is not supported. Looping with `openssl dgst -sha256` is an option in theory, but it's too slow (takes 5s for 1000 iterations on my M1 mac).
+# So python3's hashlib is best option I got.
+pbkdf2_sha256() {
+	local pw="$1" salt="$2" iter="$3"
+	python3 -c "import sys,hashlib,binascii; h=hashlib.pbkdf2_hmac('sha256', sys.argv[1].encode(), bytes.fromhex(sys.argv[2]), int(sys.argv[3])); print(binascii.hexlify(h).decode())" "$pw" "$salt" "$iter"
+}
+
 init_vault() {
 	echo "=== Setup vault ==="
 	prompt_path
@@ -64,27 +71,32 @@ init_vault() {
 		if [ "$p1" = "$p2" ]; then break; fi
 		echo "Mismatch, try again."
 	done
+
+	enc_key=$(openssl rand -hex 32)
+
+	pass_hash_salt=$(openssl rand -hex 32)
+	pass_hash_iter=200000
+	pass_hash=$(pbkdf2_sha256 "$p1" "$pass_hash_salt" "$pass_hash_iter")
+
 	kdf_iters=200000
-	pass_hash=$(echo "$p1" | openssl dgst -sha256 | cut -d'=' -f2 | tr -d ' ')
-	key=$(openssl rand -hex 32)
-	wrapped=$(echo "$key" |
+	wrapped_enc_key=$(echo "$enc_key" |
 		openssl enc -aes-256-cbc -salt -a \
 			-pbkdf2 -iter "$kdf_iters" \
 			-pass pass:"$p1")
 
 	sqlite3 "$DB_PATH" <"$BASEDIR/queries/schema.sql"
 	sqlite3 "$DB_PATH" <<SQL
-INSERT INTO vault_key (id,kdf,kdf_iters,enc_algo,enc_key,password_hash,tag)
-VALUES (1,'openssl-aes-256-cbc',$kdf_iters,'AES-256-CBC','$wrapped','$pass_hash',X'');
+INSERT INTO vault_key (id, wrapped_enc_key, pass_hash, pass_hash_salt, pass_hash_iter, kdf, kdf_iters, tag)
+VALUES (1, '$wrapped_enc_key', '$pass_hash', '$pass_hash_salt', $pass_hash_iter, 'openssl-aes-256-cbc', $kdf_iters, X'');
 SQL
+
 	echo "Vault ready: $DB_PATH"
 }
 
 load_vault_key() {
-	echo
 	echo "=== Unlock vault ==="
-	result="$(sqlite3 "$DB_PATH" -separator '|' "SELECT replace(enc_key, char(10), ''), kdf_iters, password_hash FROM vault_key WHERE id=1;")"
-	IFS='|' read -r wrapped_key kdf_iters stored_pass_hash <<<"$result"
+	result=$(sqlite3 "$DB_PATH" -separator '|' "SELECT replace(wrapped_enc_key, char(10), ''), kdf_iters, pass_hash, pass_hash_salt, pass_hash_iter FROM vault_key WHERE id=1;")
+	IFS='|' read -r wrapped_key kdf_iters pass_hash pass_hash_salt pass_hash_iter <<<"$result"
 	while :; do
 		pass=$(gum input --password --placeholder "Enter master password")
 		code=$?
@@ -93,8 +105,8 @@ load_vault_key() {
 		# Ctrl‑D returns empty string with status 0
 		[ -z "$pass" ] && echo "Aborted." && exit 1
 
-		input_pass_hash=$(echo "$pass" | openssl dgst -sha256 | cut -d'=' -f2 | tr -d ' ')
-		if [ "$input_pass_hash" != "$stored_pass_hash" ]; then
+		input_pass_hash=$(pbkdf2_sha256 "$pass" "$pass_hash_salt" "$pass_hash_iter")
+		if [ "$input_pass_hash" != "$pass_hash" ]; then
 			echo "Invalid password, try again (Ctrl+C to quit)."
 			continue
 		fi

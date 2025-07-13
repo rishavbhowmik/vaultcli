@@ -1,12 +1,15 @@
 -- =========  1. vault-wide key envelope  ====================
 CREATE TABLE vault_key (
     id INTEGER PRIMARY KEY CHECK (id = 1),
-    kdf TEXT NOT NULL, -- 'argon2id', 'scrypt', …
+    wrapped_enc_key BLOB NOT NULL,
+    -- password to encrypt the enc_key
+    pass_hash BLOB NOT NULL,
+    pass_hash_salt BLOB NOT NULL,
+    pass_hash_iter INTEGER NOT NULL,
+    -- Key Derivation Function params to encrypt the enc_key
+    kdf TEXT NOT NULL,
     kdf_iters INTEGER NOT NULL,
-    enc_algo TEXT NOT NULL, -- 'AES-256-GCM', …
-    enc_key BLOB NOT NULL, -- vault-key ciphertext
-    password_hash TEXT NOT NULL, -- SHA-256 hash of the master password
-    tag BLOB NOT NULL -- AEAD auth tag
+    tag BLOB NOT NULL
 );
 
 -- =========  2. logical file / note index  =================
