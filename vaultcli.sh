@@ -64,17 +64,18 @@ init_vault() {
 		if [ "$p1" = "$p2" ]; then break; fi
 		echo "Mismatch, try again."
 	done
+	kdf_iters=200000
 	pass_hash=$(echo "$p1" | openssl dgst -sha256 | cut -d'=' -f2 | tr -d ' ')
 	key=$(openssl rand -hex 32)
 	wrapped=$(echo "$key" |
 		openssl enc -aes-256-cbc -salt -a \
-			-pbkdf2 -iter 200000 \
+			-pbkdf2 -iter "$kdf_iters" \
 			-pass pass:"$p1")
 
 	sqlite3 "$DB_PATH" <"$BASEDIR/queries/schema.sql"
 	sqlite3 "$DB_PATH" <<SQL
 INSERT INTO vault_key (id,kdf,kdf_iters,enc_algo,enc_key,password_hash,tag)
-VALUES (1,'openssl-aes-256-cbc',200000,'AES-256-CBC','$wrapped','$pass_hash',X'');
+VALUES (1,'openssl-aes-256-cbc',$kdf_iters,'AES-256-CBC','$wrapped','$pass_hash',X'');
 SQL
 	echo "Vault ready: $DB_PATH"
 }
@@ -101,7 +102,7 @@ load_vault_key() {
 		key=$(
 			echo "$wrapped_key" |
 				openssl enc -d -aes-256-cbc -salt -a \
-					-pbkdf2 -iter 200000 \
+					-pbkdf2 -iter "$kdf_iters" \
 					-pass pass:"$pass" 2>/dev/null
 		)
 		MASTER_KEY="$key"
