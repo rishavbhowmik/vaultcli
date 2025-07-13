@@ -1,5 +1,6 @@
 BASEDIR=$(dirname "$0")
 DB_PATH=""
+MASTER_KEY=""
 
 usage() {
 	cat <<EOF
@@ -17,9 +18,7 @@ parse_args() {
 			DB_PATH="$2"
 			shift 2
 			;;
-		*)
-			usage
-			;;
+		*) usage ;;
 		esac
 	done
 }
@@ -55,8 +54,7 @@ check_vault() {
 init_vault() {
 	echo "=== Setup vault ==="
 	prompt_path
-
-	while true; do
+	while :; do
 		p1=$(gum input --password --placeholder "Master password")
 		if [ -z "$p1" ]; then
 			echo "Empty password."
@@ -66,7 +64,6 @@ init_vault() {
 		if [ "$p1" = "$p2" ]; then break; fi
 		echo "Mismatch, try again."
 	done
-
 	key=$(openssl rand -hex 32)
 	wrapped=$(echo "$key" |
 		openssl enc -aes-256-cbc -salt -a \
@@ -78,7 +75,6 @@ init_vault() {
 INSERT INTO vault_key (id,kdf,kdf_iters,enc_algo,enc_key,tag)
 VALUES (1,'openssl-aes-256-cbc',200000,'AES-256-CBC','$wrapped',X'');
 SQL
-
 	echo "Vault ready: $DB_PATH"
 }
 
@@ -88,13 +84,13 @@ load_vault_key() {
 	IFS='|' read wrapped_key kdf_iters <<EOF
 $(sqlite3 "$DB_PATH" -separator '|' "SELECT enc_key, kdf_iters FROM vault_key WHERE id=1;")
 EOF
-
-	while true; do
+	while :; do
 		pass=$(gum input --password --placeholder "Enter master password")
-		if [ -z "$pass" ]; then
-			echo "Empty password."
-			continue
-		fi
+		code=$?
+		# Ctrl‑C or Esc exits gum with non‑zero status
+		[ "$code" -ne 0 ] && echo "Aborted." && exit 130
+		# Ctrl‑D returns empty string with status 0
+		[ -z "$pass" ] && echo "Aborted." && exit 1
 
 		key=$(
 			echo "$wrapped_key" |
@@ -106,13 +102,13 @@ EOF
 			MASTER_KEY="$key"
 			break
 		else
-			echo "Invalid password, try again."
+			echo "Invalid password, try again (Ctrl+C to quit)."
 		fi
 	done
 }
 
 main_menu() {
-	while true; do
+	while :; do
 		cmd=$(
 			gum choose \
 				"Add note" \
