@@ -5,6 +5,7 @@ CREATE TABLE vault_key (
     kdf_iters INTEGER NOT NULL,
     enc_algo TEXT NOT NULL, -- 'AES-256-GCM', …
     enc_key BLOB NOT NULL, -- vault-key ciphertext
+    password_hash TEXT NOT NULL, -- SHA-256 hash of the master password
     tag BLOB NOT NULL -- AEAD auth tag
 );
 

@@ -64,6 +64,7 @@ init_vault() {
 		if [ "$p1" = "$p2" ]; then break; fi
 		echo "Mismatch, try again."
 	done
+	pass_hash=$(echo "$p1" | openssl dgst -sha256 | cut -d'=' -f2 | tr -d ' ')
 	key=$(openssl rand -hex 32)
 	wrapped=$(echo "$key" |
 		openssl enc -aes-256-cbc -salt -a \
@@ -72,8 +73,8 @@ init_vault() {
 
 	sqlite3 "$DB_PATH" <"$BASEDIR/queries/schema.sql"
 	sqlite3 "$DB_PATH" <<SQL
-INSERT INTO vault_key (id,kdf,kdf_iters,enc_algo,enc_key,tag)
-VALUES (1,'openssl-aes-256-cbc',200000,'AES-256-CBC','$wrapped',X'');
+INSERT INTO vault_key (id,kdf,kdf_iters,enc_algo,enc_key,password_hash,tag)
+VALUES (1,'openssl-aes-256-cbc',200000,'AES-256-CBC','$wrapped','$pass_hash',X'');
 SQL
 	echo "Vault ready: $DB_PATH"
 }
@@ -81,9 +82,8 @@ SQL
 load_vault_key() {
 	echo
 	echo "=== Unlock vault ==="
-	IFS='|' read wrapped_key kdf_iters <<EOF
-$(sqlite3 "$DB_PATH" -separator '|' "SELECT enc_key, kdf_iters FROM vault_key WHERE id=1;")
-EOF
+	result="$(sqlite3 "$DB_PATH" -separator '|' "SELECT replace(enc_key, char(10), ''), kdf_iters, password_hash FROM vault_key WHERE id=1;")"
+	IFS='|' read -r wrapped_key kdf_iters stored_pass_hash <<<"$result"
 	while :; do
 		pass=$(gum input --password --placeholder "Enter master password")
 		code=$?
@@ -92,17 +92,21 @@ EOF
 		# Ctrl‑D returns empty string with status 0
 		[ -z "$pass" ] && echo "Aborted." && exit 1
 
+		input_pass_hash=$(echo "$pass" | openssl dgst -sha256 | cut -d'=' -f2 | tr -d ' ')
+		if [ "$input_pass_hash" != "$stored_pass_hash" ]; then
+			echo "Invalid password, try again (Ctrl+C to quit)."
+			continue
+		fi
+
 		key=$(
 			echo "$wrapped_key" |
 				openssl enc -d -aes-256-cbc -salt -a \
 					-pbkdf2 -iter 200000 \
 					-pass pass:"$pass" 2>/dev/null
 		)
-		if [ -n "$key" ]; then
-			MASTER_KEY="$key"
+		MASTER_KEY="$key"
+		if [ -n "$MASTER_KEY" ]; then
 			break
-		else
-			echo "Invalid password, try again (Ctrl+C to quit)."
 		fi
 	done
 }
