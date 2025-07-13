@@ -2,7 +2,6 @@
 CREATE TABLE vault_key (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     kdf TEXT NOT NULL, -- 'argon2id', 'scrypt', …
-    kdf_salt BLOB NOT NULL,
     kdf_iters INTEGER NOT NULL,
     enc_algo TEXT NOT NULL, -- 'AES-256-GCM', …
     enc_key BLOB NOT NULL, -- vault-key ciphertext

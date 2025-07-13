@@ -18,14 +18,9 @@ It ships as a SH script that runs on with Bash, SQLite and OpenSSL.
 
 ### Dependencies
 
-- Bash (version 4 or newer recommended)
-
-- gum (brew install gum or see Gum’s docs)
-
 - sqlite3 (the SQLite command-line utility)
-
 - OpenSSL (for encryption)
-
+- gum (brew install gum or see Gum’s docs)
 - Your preferred text editor (e.g., vim, nano, or as set by $EDITOR)
 
 > All dependencies are available on Linux, macOS, and WSL. Install them using your system package manager (apt, brew, pacman, etc.).
