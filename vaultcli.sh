@@ -124,6 +124,58 @@ load_vault_key() {
 	done
 }
 
+change_vault_password() {
+	echo "=== Change vault password ==="
+	# Verify current password
+	result=$(sqlite3 "$DB_PATH" -separator '|' "SELECT replace(wrapped_enc_key, char(10), ''), kdf_iters, pass_hash, pass_hash_salt, pass_hash_iter FROM vault_key WHERE id=1;")
+	IFS='|' read -r wrapped_key kdf_iters pass_hash pass_hash_salt stored_iter <<<"$result"
+
+	while :; do
+		oldpassword=$(gum input --password --placeholder "Enter CURRENT master password")
+		[ -z "$oldpassword" ] && echo "Aborted." && return 1
+		input_pass_hash=$(pbkdf2_sha256 "$oldpassword" "$pass_hash_salt" "$stored_iter")
+		if [ "$input_pass_hash" != "$pass_hash" ]; then
+			echo "Invalid password, try again (Ctrl+C to quit)."
+			sleep 1
+			continue
+		fi
+		# Try to unwrap
+		enc_key=$(echo "$wrapped_key" | openssl enc -d -aes-256-cbc -salt -a -pbkdf2 -iter "$kdf_iters" -pass pass:"$oldpassword" 2>/dev/null)
+		if [ -z "$enc_key" ]; then
+			echo "Failed to decrypt vault key. Aborted."
+			return 1
+		fi
+		break
+	done
+
+	# Set new password
+	while :; do
+		p1=$(gum input --password --placeholder "New master password")
+		[ -z "$p1" ] && echo "Empty password." && continue
+		p2=$(gum input --password --placeholder "Confirm new password")
+		[ "$p1" = "$p2" ] && break
+		echo "Mismatch, try again."
+	done
+
+	# Step 3: Hash new password, rewrap enc_key
+	new_salt=$(openssl rand -hex 16)
+	new_iter=200000
+	new_pass_hash=$(pbkdf2_sha256 "$p1" "$new_salt" "$new_iter")
+	new_wrapped_key=$(echo "$enc_key" | openssl enc -aes-256-cbc -salt -a -pbkdf2 -iter "$kdf_iters" -pass pass:"$p1")
+
+	# Step 4: Update DB
+	sqlite3 "$DB_PATH" <<SQL
+UPDATE vault_key
+  SET pass_hash='$new_pass_hash',
+      pass_hash_salt='$new_salt',
+      pass_hash_iter=$new_iter,
+      wrapped_enc_key='$new_wrapped_key'
+WHERE id=1;
+SQL
+
+	echo "Vault password changed successfully."
+}
+
 main_menu() {
 	while :; do
 		cmd=$(
@@ -138,7 +190,7 @@ main_menu() {
 		"Add note") echo "Add note" ;;
 		"Read note") echo "Read note" ;;
 		"List notes") echo "List notes" ;;
-		"Change password") echo "Change password" ;;
+		"Change password") change_vault_password ;;
 		"Exit") exit 0 ;;
 		esac
 	done
